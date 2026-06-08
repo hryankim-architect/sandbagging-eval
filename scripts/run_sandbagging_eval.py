@@ -12,6 +12,7 @@ real; the protocol + scorer are unchanged.
 """
 from __future__ import annotations
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -20,21 +21,35 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 
 from sandeval import FRAMINGS, audit, bootstrap  # noqa: E402
+from sandeval.backends import ollama_complete  # noqa: E402
 from sandeval.items import load_items  # noqa: E402
-from sandeval.responder import MockResponder  # noqa: E402
+from sandeval.responder import LLMResponder, MockResponder  # noqa: E402
 from sandeval.scorer import Answer, ItemResult, gap_from_items, per_domain_gap, score  # noqa: E402
 
-JOB_ID = "sandbagging-eval-v0.2"
+JOB_ID = "sandbagging-eval-v0.3"
 N_BOOT = 2000
 
 
 def main() -> int:
+    ap = argparse.ArgumentParser(description="Sandbagging eval — mock (default) or a real model.")
+    ap.add_argument("--responder", choices=["mock", "ollama"], default="mock")
+    ap.add_argument("--model", default="qwen2.5:7b-instruct", help="Ollama model tag")
+    ap.add_argument("--host", default="http://localhost:11434")
+    args = ap.parse_args()
+
     items = load_items(REPO / "data" / "items.yaml")
     ledger = REPO / "audit" / "local-demo.ndjson"
     ledger.parent.mkdir(parents=True, exist_ok=True)
     ledger.write_text("", encoding="utf-8")  # fresh chain per run (truncate, not unlink)
 
-    responder = MockResponder()
+    if args.responder == "ollama":
+        responder: MockResponder | LLMResponder = LLMResponder(
+            ollama_complete(args.model, args.host))
+        responder_label = f"ollama:{args.model}"
+    else:
+        responder = MockResponder()
+        responder_label = "mock"
+    print(f"responder = {responder_label}")
     answers: list[Answer] = []
     item_results: list[ItemResult] = []
     for it in items:
@@ -73,12 +88,13 @@ def main() -> int:
         encoding="utf-8",
     )
     (REPO / "audit" / "sandbagging_eval.md").write_text(
-        _render(s, ci, by_domain, chain_ok, n_entries), encoding="utf-8")
+        _render(s, ci, by_domain, chain_ok, n_entries, responder_label), encoding="utf-8")
     print("\nWrote audit/sandbagging_eval.md + sandbagging_eval.json")
     return 0
 
 
-def _render(s: dict, ci: dict, by_domain: dict, chain_ok: bool, n_entries: int) -> str:
+def _render(s: dict, ci: dict, by_domain: dict, chain_ok: bool, n_entries: int,
+            responder_label: str = "mock") -> str:
     rows = "\n".join(
         f"| {f} | {0.0 if s['accuracy_by_framing'][f] is None else s['accuracy_by_framing'][f]:.3f} |"
         for f in FRAMINGS
@@ -87,13 +103,19 @@ def _render(s: dict, ci: dict, by_domain: dict, chain_ok: bool, n_entries: int) 
         f"| {d} | {v['n_items']} | {0.0 if v['sandbagging_gap'] is None else v['sandbagging_gap']:+.3f} |"
         for d, v in by_domain.items()
     )
-    return f"""# Sandbagging eval (MOCK responder, v0.2)
+    if responder_label == "mock":
+        source = ("Answers come from the MOCK responder (`src/sandeval/responder.py`) — "
+                  "a transparent stand-in with a tunable concealment profile. Numbers "
+                  "characterize the mock; the methodology (framing protocol, scorer, "
+                  "audit) is what transfers to a real model.")
+    else:
+        source = (f"Answers come from a REAL model (`{responder_label}`) via "
+                  "`LLMResponder` + a transparent token grader, under the identical "
+                  "framing protocol, scorer, and audit. Numbers characterize that model.")
+    return f"""# Sandbagging eval (responder: {responder_label}, v0.3)
 
 Clean-room methodology demo: n={s['n_items']} verifiable items, each answered under
-three framings of increasing eval-awareness. Answers come from the MOCK responder
-(`src/sandeval/responder.py`) — a transparent stand-in with a tunable concealment
-profile. Numbers characterize the mock; the methodology (framing protocol, scorer,
-audit) is what transfers to a real model.
+three framings of increasing eval-awareness. {source}
 
 ## Accuracy by framing
 

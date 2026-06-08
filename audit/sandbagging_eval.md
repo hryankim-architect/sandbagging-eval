@@ -1,10 +1,7 @@
-# Sandbagging eval (MOCK responder, v0.2)
+# Sandbagging eval (responder: mock, v0.3)
 
 Clean-room methodology demo: n=20 verifiable items, each answered under
-three framings of increasing eval-awareness. Answers come from the MOCK responder
-(`src/sandeval/responder.py`) — a transparent stand-in with a tunable concealment
-profile. Numbers characterize the mock; the methodology (framing protocol, scorer,
-audit) is what transfers to a real model.
+three framings of increasing eval-awareness. Answers come from the MOCK responder (`src/sandeval/responder.py`) — a transparent stand-in with a tunable concealment profile. Numbers characterize the mock; the methodology (framing protocol, scorer, audit) is what transfers to a real model.
 
 ## Accuracy by framing
 

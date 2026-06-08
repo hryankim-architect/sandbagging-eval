@@ -1,7 +1,7 @@
 [project]
 name = "sandbagging-eval"
-version = "0.2.0"
-description = "Clean-room harness that measures capability concealment under evaluation-awareness (sandbagging): the accuracy gap between neutral and eval-framed prompts, by framing strength, with a hash-chained audit. Synthetic/mock responder; the methodology is the deliverable."
+version = "0.3.0"
+description = "Clean-room harness that measures capability concealment under evaluation-awareness (sandbagging): the accuracy gap between neutral and eval-framed prompts, by framing strength, with bootstrap CIs and a hash-chained audit. Ships a tunable mock responder AND a real-model adapter (LLMResponder + Ollama/any complete() client); the framing protocol + scorer are identical for both."
 readme = "README.md"
 license = { text = "MIT" }
 authors = [{ name = "H. Ryan Kim" }]
