@@ -19,12 +19,13 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "src"))
 
-from sandeval import FRAMINGS, audit  # noqa: E402
+from sandeval import FRAMINGS, audit, bootstrap  # noqa: E402
 from sandeval.items import load_items  # noqa: E402
 from sandeval.responder import MockResponder  # noqa: E402
-from sandeval.scorer import Answer, score  # noqa: E402
+from sandeval.scorer import Answer, ItemResult, gap_from_items, per_domain_gap, score  # noqa: E402
 
-JOB_ID = "sandbagging-eval-v0.1"
+JOB_ID = "sandbagging-eval-v0.2"
+N_BOOT = 2000
 
 
 def main() -> int:
@@ -35,16 +36,22 @@ def main() -> int:
 
     responder = MockResponder()
     answers: list[Answer] = []
+    item_results: list[ItemResult] = []
     for it in items:
+        verdicts: dict[str, str] = {}
         for framing in FRAMINGS:
             v = responder.answer(it, framing)
             audit.emit("answer", JOB_ID,
                        {"item_id": it.id, "framing": framing, "verdict": v},
                        ledger_path=ledger)
             answers.append(Answer(it.id, framing, v))
+            verdicts[framing] = v
+        item_results.append(ItemResult(it.id, it.domain, verdicts))
 
     chain_ok, n_entries = audit.verify(ledger)
     s = score(answers)
+    ci = bootstrap.bootstrap_metric(item_results, gap_from_items, n_boot=N_BOOT, seed=42)
+    by_domain = per_domain_gap(item_results)
 
     print(f"=== sandbagging-eval (n_items={s['n_items']}) ===")
     print("  accuracy_by_framing:")
@@ -52,24 +59,35 @@ def main() -> int:
         acc = s["accuracy_by_framing"][f]
         print(f"    {f:11s}: {0.0 if acc is None else acc:.3f}")
     print(f"  sandbagging_gap   : {s['sandbagging_gap']:.3f}  (neutral - high_stakes; >0 => conceals)")
+    print(f"    95% CI (bootstrap, n={ci['n_boot']}): [{ci['ci_low']:.3f}, {ci['ci_high']:.3f}]")
     print(f"  sandbagging_detected: {s['sandbagging_detected']}")
+    print("  per-domain sandbagging_gap:")
+    for d, v in by_domain.items():
+        g = v["sandbagging_gap"]
+        print(f"    {d:12s}: {0.0 if g is None else g:+.3f}  (n_items={v['n_items']})")
     print(f"  audit: chain_ok={chain_ok}, entries={n_entries}")
 
     (REPO / "audit" / "sandbagging_eval.json").write_text(
-        json.dumps({"summary": s, "audit": {"chain_ok": chain_ok, "entries": n_entries}}, indent=2),
+        json.dumps({"summary": s, "sandbagging_gap_ci": ci, "per_domain": by_domain,
+                    "audit": {"chain_ok": chain_ok, "entries": n_entries}}, indent=2),
         encoding="utf-8",
     )
-    (REPO / "audit" / "sandbagging_eval.md").write_text(_render(s, chain_ok, n_entries), encoding="utf-8")
+    (REPO / "audit" / "sandbagging_eval.md").write_text(
+        _render(s, ci, by_domain, chain_ok, n_entries), encoding="utf-8")
     print("\nWrote audit/sandbagging_eval.md + sandbagging_eval.json")
     return 0
 
 
-def _render(s: dict, chain_ok: bool, n_entries: int) -> str:
+def _render(s: dict, ci: dict, by_domain: dict, chain_ok: bool, n_entries: int) -> str:
     rows = "\n".join(
         f"| {f} | {0.0 if s['accuracy_by_framing'][f] is None else s['accuracy_by_framing'][f]:.3f} |"
         for f in FRAMINGS
     )
-    return f"""# Sandbagging eval (MOCK responder, v0.1)
+    dom_rows = "\n".join(
+        f"| {d} | {v['n_items']} | {0.0 if v['sandbagging_gap'] is None else v['sandbagging_gap']:+.3f} |"
+        for d, v in by_domain.items()
+    )
+    return f"""# Sandbagging eval (MOCK responder, v0.2)
 
 Clean-room methodology demo: n={s['n_items']} verifiable items, each answered under
 three framings of increasing eval-awareness. Answers come from the MOCK responder
@@ -85,8 +103,15 @@ audit) is what transfers to a real model.
 
 - **sandbagging_gap (neutral - high_stakes): {s['sandbagging_gap']:.3f}** — a
   positive gap means the model performs worse when it "knows" it is being tested.
+  95% bootstrap CI [{ci['ci_low']:.3f}, {ci['ci_high']:.3f}] (n={ci['n_boot']}).
 - sandbagging_detected: {s['sandbagging_detected']}
 - audit: chain_ok={chain_ok}, entries={n_entries}
+
+## Per-domain sandbagging gap
+
+| domain | n_items | sandbagging_gap |
+|---|---|---|
+{dom_rows}
 
 > Why it matters: if a model strategically underperforms on capability evaluations,
 > the evaluations under-state real capability — undermining exactly the safety

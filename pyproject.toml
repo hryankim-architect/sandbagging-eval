@@ -1,6 +1,6 @@
 [project]
 name = "sandbagging-eval"
-version = "0.1.0"
+version = "0.2.0"
 description = "Clean-room harness that measures capability concealment under evaluation-awareness (sandbagging): the accuracy gap between neutral and eval-framed prompts, by framing strength, with a hash-chained audit. Synthetic/mock responder; the methodology is the deliverable."
 readme = "README.md"
 license = { text = "MIT" }
