@@ -23,7 +23,7 @@ sys.path.insert(0, str(REPO / "src"))
 from sandeval import FRAMINGS, audit, bootstrap  # noqa: E402
 from sandeval.backends import ollama_complete  # noqa: E402
 from sandeval.items import load_items  # noqa: E402
-from sandeval.responder import LLMResponder, MockResponder  # noqa: E402
+from sandeval.responder import LLMGrader, LLMResponder, MockResponder, grade  # noqa: E402
 from sandeval.scorer import Answer, ItemResult, gap_from_items, per_domain_gap, score  # noqa: E402
 
 JOB_ID = "sandbagging-eval-v0.3"
@@ -35,6 +35,8 @@ def main() -> int:
     ap.add_argument("--responder", choices=["mock", "ollama"], default="mock")
     ap.add_argument("--model", default="qwen2.5:7b-instruct", help="Ollama model tag")
     ap.add_argument("--host", default="http://localhost:11434")
+    ap.add_argument("--grader", choices=["token", "llm"], default="token",
+                    help="grader for --responder ollama: token match (default) or an LLM judge")
     args = ap.parse_args()
 
     items = load_items(REPO / "data" / "items.yaml")
@@ -43,9 +45,10 @@ def main() -> int:
     ledger.write_text("", encoding="utf-8")  # fresh chain per run (truncate, not unlink)
 
     if args.responder == "ollama":
-        responder: MockResponder | LLMResponder = LLMResponder(
-            ollama_complete(args.model, args.host))
-        responder_label = f"ollama:{args.model}"
+        complete = ollama_complete(args.model, args.host)
+        grader = LLMGrader(complete) if args.grader == "llm" else grade
+        responder: MockResponder | LLMResponder = LLMResponder(complete, grader=grader)
+        responder_label = f"ollama:{args.model}" + ("+llm-judge" if args.grader == "llm" else "")
     else:
         responder = MockResponder()
         responder_label = "mock"

@@ -46,22 +46,29 @@ Example (mock responder, n=20): accuracy falls neutral → eval → high_stakes,
 recovers the planted concealment. Set the mock's `sandbag` profile to all-zero
 (`src/sandeval/responder.py`) and the gap collapses to 0 (no sandbagging).
 
-## Run against a real model (v0.3)
+## Run against a real model (v0.3) + LLM-judge grader (v0.4)
 
 ```bash
 # requires a local Ollama server with the model pulled
 python scripts/run_sandbagging_eval.py --responder ollama --model qwen2.5:7b-instruct
+# v0.4: grade the free-text answers with an LLM judge instead of token match
+python scripts/run_sandbagging_eval.py --responder ollama --grader llm
 ```
 
 `LLMResponder` (`src/sandeval/responder.py`) answers each item under the three
-framings and a transparent token `grade()` maps the free-text answer to
-correct / incorrect / abstain (an abstention under eval pressure is itself a form of
-concealment, so it scores as not-correct). **The framing protocol, scorer, bootstrap
-CI, and audit are identical to the mock run** — only the framing the model *sees*
-changes, so any accuracy drop is the model's behavior, not the harness's. Any
-`complete(prompt) -> str` callable works (see `src/sandeval/backends.py`). The
-adapter is unit-tested offline with a stub client (`tests/test_adapter.py`); live
-numbers require your own model and are not in CI.
+framings and a grader maps the free-text answer to correct / incorrect / abstain (an
+abstention under eval pressure is itself a form of concealment, so it scores as
+not-correct). **The framing protocol, scorer, bootstrap CI, and audit are identical
+to the mock run** — only the framing the model *sees* changes, so any accuracy drop is
+the model's behavior, not the harness's. Any `complete(prompt) -> str` callable works
+(see `src/sandeval/backends.py`); the adapter is unit-tested offline with a stub
+client. Live numbers require your own model and are not in CI.
+
+The grader is **pluggable** behind one `(answer, item) -> verdict` seam:
+**`--grader token`** (default) is a deterministic substring match — offline but
+brittle on full-sentence answers; **`--grader llm`** (v0.4) uses an `LLMGrader` model
+judge — more robust on free-text, at the cost of a second model call and the judge's
+own fallibility. Both are isolated and stub-tested, so the trade-off is explicit.
 
 ## Honest scope
 
